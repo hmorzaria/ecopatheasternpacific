@@ -1,0 +1,824 @@
+---
+title: "Ecopath"
+output: html_notebook
+---
+
+Analisis de capas dentro de modelos Ecopath
+
+```{r load code & libraries, message=FALSE, warning=FALSE, include=FALSE}
+source("libraries.R")
+source("ecopath_polygons.R")
+```
+
+Usar http://ecobase.ecopath.org/#docs para coordenadas
+
+```{r}
+#To obtain the list of available model
+h=basicTextGatherer()
+curlPerform(url = 'http://sirs.agrocampus-ouest.fr/EcoBase/php/webser/soap-client_3.php',writefunction=h$update)
+
+data<-xmlTreeParse(h$value(),useInternalNodes=TRUE)
+liste_mod<-ldply(xmlToList(data),data.frame)
+
+#liste_mod contains a list and decription of available models in EcoBase        
+
+
+liste_mod %>% 
+  dplyr::select(model.geographic_extent)
+
+liste_mod %>% 
+  write_csv("datos_ecobase.csv")
+
+```
+
+
+```{r}
+
+coords.ecopath <- read_xlsx("JCPA_Inputs Ecopaths coordinates_rev.xlsx", sheet = 1)
+
+coords.ecopath %>% 
+  dplyr::select(Ref,Year, Location, vertice, lat_rev, lon_rev) %>% 
+  dplyr::rename(Zona = Location, lat= lat_rev, lon = lon_rev) %>% 
+  write_csv("coordenadas_modelos_ecopath.csv")
+
+locations.ecopath <- coords.ecopath %>% 
+  distinct(Location) %>% 
+  pull(Location)
+
+
+lapply(locations.ecopath, make_polygons, coords.ecopath)
+
+
+#shape.plot <- st_read("North and central GC.shp")
+
+#simbolos http://www.sthda.com/english/wiki/r-plot-pch-symbols-the-different-point-shapes-available-in-r
+
+
+shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) 
+
+world <- ne_countries(scale = "medium", returnclass = "sf")
+class(world)
+
+mapa.locs <- ggplot(data = world) +
+    geom_sf() +
+    geom_sf(data = shape.list, fill="yellow") + 
+    coord_sf(xlim = c(-119, -70), ylim = c(-10, 35), expand = FALSE) +
+   xlab("Longitud") + ylab("Latitud") +
+  theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
+        size = 0.1), panel.background = element_rect(fill = "aliceblue"))
+
+```
+
+
+```{r}
+
+wgs.crs <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+base.raster <- raster(paste0(here(),"/rasters/pp_mean.asc"))
+values(base.raster)[values(base.raster) > 0] = 0
+
+shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) 
+
+extent.ecopath <- extent(base.raster)
+
+areapolygon <- paste0("POLYGON((",extent.ecopath@xmin," ", extent.ecopath@ymax,",", extent.ecopath@xmax," ",extent.ecopath@ymax, ",", extent.ecopath@xmax," ", extent.ecopath@ymin, ",", extent.ecopath@xmin, " ", extent.ecopath@ymin,",", extent.ecopath@xmin," ", extent.ecopath@ymax,"))")
+
+  obis.data.table  <- tryCatch(robis::occurrence(geometry =areapolygon, fields=c("species","decimalLongitude", "decimalLatitude"),verbose=TRUE),error=function(e) as.character()) 
+   
+richness.table <- obis.data.table %>% 
+  distinct(species, decimalLatitude, decimalLongitude)
+
+write_csv(obis.data.table, "obis_records.csv")
+
+coordinates(obis.data.table) <- c("decimalLongitude", "decimalLatitude")  # set spatial coordinates
+proj4string(obis.data.table) <- wgs.crs  # define projection system of our data
+ 
+richness.raster <- rasterize(obis.data.table, base.raster, fun='count')
+proj4string(richness.raster) <- wgs.crs  # define projection system of our 
+
+rs1 <- calc(richness.raster, sum) %>% 
+  rescale0to1()
+
+proj4string(rs1) <- wgs.crs  # define projection system of our 
+
+writeRaster(rs1, paste0(here(),"/rasters/richness.asc"), format="ascii", overwrite=TRUE)
+    
+
+rs2 <- calc(richness.raster, mean) %>% 
+  rescale0to1()
+
+proj4string(rs2) <- wgs.crs  # define projection system of our 
+
+writeRaster(rs2, paste0(here(),"/rasters/richness_mean.asc"), format="ascii", overwrite=TRUE)
+
+```
+
+rasters para valores
+
+informacion de la base de perturbaciones humanas halpern 2013: 
+efecto acumulativo, 
+pesca artesanal
+ocean pollution
+shipping
+productividad primaria
+riqueza de peces e invertebrados
+promedio, varianza y N pixeles con datos espaciales
+
+```{r}
+
+wgs.crs <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+mol.crs <- CRS("+proj=moll +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs")
+
+base.raster <- raster(paste0(here(),"/rasters/pp_mean.asc"))
+values(base.raster)[values(base.raster) > 0] = 0
+crs(base.raster) <- wgs.crs
+
+# productividad primaria
+# prod.raster.atlantic <- raster(paste0(here(),"/rasters/pp_mean_atlantic.asc"))
+# prod.raster.pacific <- raster(paste0(here(),"/rasters/pp_mean_pacific.asc"))
+# 
+#prod.raster <- raster::merge(prod.raster.atlantic, prod.raster.pacific) %>%   rescale0to1()
+# 
+# writeRaster(prod.raster, paste0(here(),"/rasters/pp_mean.asc"), format="ascii")
+  
+
+impact.raster <- raster(paste0(here(),"/rasters/global_cumul_impact_2013_all_layers.tif"))
+impact.raster.pr <- projectRaster(impact.raster, crs = wgs.crs)
+
+impact.raster.rs <- resample(impact.raster.pr, base.raster, method = 'bilinear') # resample output
+impact.raster.sc <- rescale0to1(impact.raster.rs)
+
+
+writeRaster(impact.raster.sc, paste0(here(),"/rasters/impact.asc"), format="ascii", overwrite=TRUE)
+
+
+artisanal.raster <- raster(paste0(here(),"/rasters/artisanal_fishing.tif")) 
+artisanal.raster.pr <-projectRaster(artisanal.raster, crs = wgs.crs)
+
+artisanal.raster.rs <- resample(artisanal.raster.pr, base.raster, method = 'bilinear') # resample output
+
+artisanal.raster.sc <- rescale0to1(artisanal.raster.rs)
+  
+writeRaster(artisanal.raster.sc, paste0(here(),"/rasters/artisanal.asc"), format="ascii", overwrite=TRUE)
+
+
+shipping.raster <- raster(paste0(here(),"/rasters/shipping.tif")) shipping.raster.pr <-projectRaster(shipping.raster, crs = wgs.crs)
+
+shipping.raster.rs <- resample(shipping.raster.pr, base.raster, method = 'bilinear') # resample output
+shipping.raster.sc <- rescale0to1(shipping.raster.rs)
+
+writeRaster(shipping.raster.sc, paste0(here(),"/rasters/shipping.asc"), format="ascii", overwrite=TRUE)
+
+#contaminacion
+pollution.raster <- raster(paste0(here(),"/rasters/ocean_pollution_combo.tif")) 
+pollution.raster.pr <-projectRaster(pollution.raster, crs = wgs.crs)
+
+pollution.raster.rs <- resample(pollution.raster.pr, base.raster, method = 'bilinear') # resample output
+pollution.raster.sc <- rescale0to1(pollution.raster.rs)
+
+writeRaster(pollution.raster.sc, paste0(here(),"/rasters/pollution.asc"), format="ascii", overwrite=TRUE)
+
+
+```
+
+
+Extraer valores por poligono
+```{r}
+
+#productividad
+prod.raster.calc <- raster(paste0(here(),"/rasters/pp_mean.asc"))
+crs(prod.raster.calc) <- wgs.crs
+
+#riqueza
+richness.raster.calc <- raster(paste0(here(),"/rasters/richness.asc"))
+crs(richness.raster.calc) <- wgs.crs
+
+#pollution
+pollution.raster.calc <- raster(paste0(here(),"/rasters/pollution.asc"))
+crs(pollution.raster.calc) <- wgs.crs
+
+#artisanal fisheries
+artisanal.raster.calc <- raster(paste0(here(),"/rasters/artisanal.asc"))
+crs(artisanal.raster.calc) <- wgs.crs
+
+#impact
+impact.raster.calc <- raster(paste0(here(),"/rasters/impact.asc"))
+crs(impact.raster.calc) <- wgs.crs
+
+#shipping
+shipping.raster.calc <- raster(paste0(here(),"/rasters/shipping.asc"))
+crs(shipping.raster.calc) <- wgs.crs
+
+
+shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) 
+
+
+richness.mean <- exact_extract(richness.raster.calc, shape.list , 'mean', stack_apply = TRUE)
+prod.mean <- exact_extract(prod.raster.calc, shape.list , 'mean')
+artisanal.mean <- exact_extract(artisanal.raster.calc, shape.list , 'mean')
+pollution.mean <- exact_extract(pollution.raster.calc, shape.list , 'mean')
+shipping.mean <- exact_extract(shipping.raster.calc, shape.list , 'mean')
+impact.mean <- exact_extract(impact.raster.calc, shape.list , 'mean')
+
+
+richness.val <- exact_extract(richness.raster.calc, shape.list, 'variance')
+prod.val <- exact_extract(prod.raster.calc, shape.list , 'variance')
+artisanal.val <- exact_extract(artisanal.raster.calc, shape.list , 'variance')
+pollution.val <- exact_extract(pollution.raster.calc, shape.list , 'variance')
+shipping.val <- exact_extract(shipping.raster.calc, shape.list , 'variance')
+impact.val <- exact_extract(impact.raster.calc, shape.list , 'variance')
+
+
+richness.count <- exact_extract(richness.raster.calc, shape.list, 'count')
+prod.count <- exact_extract(prod.raster.calc, shape.list , 'count')
+artisanal.count <- exact_extract(artisanal.raster.calc, shape.list , 'count')
+pollution.count <- exact_extract(pollution.raster.calc, shape.list , 'count')
+shipping.count <- exact_extract(shipping.raster.calc, shape.list , 'count')
+impact.count <- exact_extract(impact.raster.calc, shape.list , 'count')
+
+#make table of data
+shape.names <- list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE) %>% 
+  gsub("/home/atlantis/ecopath/shapedir/","",.) %>% 
+  gsub(".shp","",.)
+
+summary.index <- tibble(modelo = shape.names, riqueza_media = richness.mean, productividad_media = prod.mean, artesanal_media = artisanal.mean, contaminacion_media = pollution.mean, trafico_barcos_media= shipping.mean, impacto_media = impact.mean, riqueza_var = richness.val, productividad_var = prod.val, artesanal_var = artisanal.val, contaminacion_var = pollution.val, trafico_barcos_var= shipping.val, impacto_var = impact.val, riqueza_conteo = richness.count, productividad_conteo = prod.count, artesanal_conteo = artisanal.count, contaminacion_conteo = pollution.count, trafico_barcos_conteo= shipping.count, impacto_conteo = impact.count)
+
+write_csv(summary.index, "resumen_indices_ecopath.csv")
+
+```
+
+GAM
+
+```{r}
+
+summary.models <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+  pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  pivot_wider(id_cols=model, names_from = Variable, values_from = "value") %>% 
+  dplyr::select(!ends_with("_conteo")) %>% 
+   dplyr::select(!ends_with("_var"))
+
+#Ascendency, Overhead and the Overhead/ Capacity ratio as measures of resilience and the Connectance and Omnivory indices as measures of resistance, a
+
+summary.models.plot <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+  pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  mutate(Variable=if_else(Variable=="riqueza_media","Richness",
+                          if_else(Variable=="productividad_media","Productivity",
+                                  if_else(Variable=="trafico_barcos_media","Boat traffic",
+                                          if_else(Variable== "artesal_media", "Artisanal fisheries",
+                                                  if_else(Variable=="contamicion_media","Pollution",
+                                                          if_else(Variable== "impacto_media","Cumulative impact",Variable)))))))
+
+normalit<-function(m){
+   (m - min(m))/(max(m)-min(m))
+}
+
+model.plot.data <- summary.models.plot %>% 
+      filter(Variable %in% c("Richness","Productivity","Boat traffic","Artisanal fisheries","Pollution","Cumulative impact")) %>% 
+      mutate(Variable = as.factor(Variable)) %>% 
+      mutate(value = if_else(is.na(value),0,value)) %>% 
+      group_by(Variable) %>% 
+      resca(value, new_min = 0, new_max = 1) %>% 
+      mutate(model=if_else(model=="Diaz-Uribe GC","NC Gulf of California",if_else(model=="Southeastern","SE Gulf of California", model))) %>% 
+      mutate(model=factor(model, levels = c("NC Gulf of California","I. Natividad","Bahía de Tortugas","Ulloa","La Paz","B. Magdalena","SE Gulf of California",
+                                      "Cabo Pulmo","Isla Isabel","Islas Marietas","Chamela", "Isla del Coco","Darwin and Wolf"))) 
+
+model.plot <- model.plot.data %>% 
+      ggplot(aes(x=Variable, y=value_res, group=model)) + 
+      geom_bar(stat = "identity", fill = "steelblue4")+
+  #geom_line() +
+ # scale_color_brewer(palette ="Set2")+
+  facet_wrap(~ model, scales="free_y")+
+      theme_classic()+
+      ylab("Value") + 
+      xlab("Model") +
+  theme(legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 90))
+   
+ggsave("model_variables.png", model.plot, device="png",width=9,height = 7,dpi=350)
+    
+
+
+#Ranked cross-correlations
+
+#Ascendency, Overhead and the Overhead/ Capacity ratio as measures of resilience and the Connectance and Omnivory indices as measures of resistance, 
+
+ranked.cross <- summary.models %>% 
+  mutate_if(is.numeric, replace_na, '0') %>% 
+  dplyr::select(ends_with("media")) %>% 
+  corr_cross(., # name of dataset
+  max_pvalue = 0.05, # display only significant correlations (at 5% level)
+  top = 20 # display top 10 couples of variables (by correlation coefficient)
+)
+
+ggsave("rank_correlations_plot.png", ranked.cross, device="png",width=10,height=9, dpi=300)
+
+
+#calculate multicollinearity
+#http://www.sthda.com/english/articles/39-regression-model-diagnostics/160-multicollinearity-essentials-and-vif-in-r/
+
+
+summary.models.lm <- summary.models %>% 
+   dplyr::select(ends_with("media"), Ascendency) %>% 
+  dplyr::rename(Productivity = productividad_media, Richness=riqueza_media, `Artisanal fisheries`= artesal_media, "Boat traffic"=trafico_barcos_media, Pollution=contamicion_media, "Cumulative impact" = "impacto_media")
+
+
+model1 <- lm(-Ascendency ~ ., data = summary.models.lm, na.action = na.exclude)
+
+vif.res <- car::vif(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "variable") %>% 
+  setNames(c("variable","VIF")) 
+
+
+vif.res$variable_factor <- factor(vif.res$variable, c("Productivity","Richness","Artisanal fisheries","Boat traffic","Pollution","Cumulative impact")) 
+
+col.pal2 <- c(redmonder.pal(9,"sPBIBu")[2:9],redmonder.pal(9,"sPBIPu")[4:7],redmonder.pal(9,"sPBIRdPu")[2:5])
+
+vif.plot <- ggplot(aes(x=variable,y=VIF, fill=variable), data=vif.res) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=col.pal2)+
+   theme(axis.text.x = element_blank())+
+  labs(x="Variable")+
+  geom_hline(yintercept=3)
+
+ggsave("vif_multicolinearity_plot.png", vif.plot, device="png",width=10,height=8, dpi=200)
+
+write_csv(vif.res,"VIF_values.csv")
+
+
+
+
+
+
+```
+
+
+#PCA
+
+```{r}
+#PCA on variables 
+
+#Ascendency, Overhead and the Overhead/ Capacity ratio 
+
+
+summary.ind <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  dplyr::filter(Variable %in% c("Ascendency","Overhead", "O/C", "Connectance Index")) %>% 
+  mutate(value = if_else(is.na(value),0,value)) %>% 
+  group_by(Variable) %>% 
+ # resca(value, new_min = 0, new_max = 1) %>% 
+ # dplyr::select(-value) %>% 
+  pivot_wider(names_from = Variable, values_from = value) %>% 
+  mutate(rec_index=1:nrow(.))
+
+summary.vars <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  dplyr::filter(grepl("media",Variable)) %>% 
+  mutate(value = if_else(is.na(value),0,value)) %>% 
+  group_by(Variable) %>% 
+  resca(value, new_min = 0, new_max = 1) %>% 
+  dplyr::select(-value) %>% 
+  pivot_wider(names_from = Variable, values_from = value_res) %>% 
+  dplyr::rename("Richness"=riqueza_media,"Productivity"=productividad_media,"Artisanal fisheries"=artesal_media,"Pollution"=contamicion_media,"Boat traffic"=trafico_barcos_media,"Cumulative impact"=impacto_media) %>% 
+  dplyr::select(-model)
+
+
+stand.environ.index <- vegan::decostand(summary.vars, "standardize") %>% 
+  mutate(rec_index=1:nrow(.)) %>% 
+  na.omit
+
+stand.environ <- vegan::decostand(summary.vars, "standardize") %>% 
+  na.omit 
+
+ # Do the PCA 
+#To perform principal component analysis using the correlation matrix using the prcomp() function, set the scale argument to TRUE.
+#This approach is recommended for data that is measured in different units or has wide variances.
+
+res.pca <- prcomp(stand.environ,center=T,scale=T)
+
+res.cov <- cov(stand.environ)
+res.eigen <- eigen(res.cov)
+
+PVE <- res.eigen$values / sum(res.eigen$values)
+
+#choose how many dimensions you need
+stand.environ.paran <- paran(stand.environ, graph = TRUE)
+
+parallel.analysis <- tibble(AdjustedEv=stand.environ.paran$AdjEv, RandomEv= stand.environ.paran$RndEv, UnadjustedEv=stand.environ.paran$Ev, PVE=PVE) %>% 
+  mutate(components=1:nrow(.)) %>% 
+  pivot_longer(cols=AdjustedEv:PVE, names_to = "parameter", values_to="eigenvalue") 
+
+col.pal1 <- c(redmonder.pal(8,"qMSOSlp"))
+col.pal1 <- col.pal1[c(1,3,4)]
+
+paralell.plot <- parallel.analysis %>% 
+  filter(parameter!="PVE") %>% 
+  filter(components < 11) %>% 
+  mutate(components = as.factor(components)) %>% 
+  ggplot(aes(x=components,y=eigenvalue, colour=parameter, group=parameter))+
+  geom_line()+
+  scale_colour_manual(values=col.pal1, name="Parameter", labels=c("Adjusted Ev","Random Ev","Unadjusted Ev")) +
+ # geom_hline(yintercept=1) +
+  theme_minimal() +
+  xlab("Dimensions") +
+  ylab("Eigenvalue") +
+  ggtitle("Parallel analysis")
+
+
+#scree plot
+#the plot of eigenvalues ordered from largest to the smallest. The number of component is determined at the point, beyond which the remaining eigenvalues are all relatively small and of comparable size (Jollife 2002, Peres-Neto, Jackson, and Somers (2005)).
+scree.plot <- fviz_eig(res.pca, addlabels = TRUE, ylim = c(0, 50)) +
+  theme_minimal()
+
+pca.test.plot <- grid.arrange(paralell.plot,scree.plot, nrow=2, ncol=1)
+
+ggsave("dimensions_plot_pca.png", pca.test.plot, device="png",width=8,height = 6,dpi=350)
+
+
+
+#graph of variables
+var.pca.plot <- fviz_pca_var(res.pca,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+ggsave("var_plot_pca.png", var.pca.plot, device="png",width=10,height = 8,dpi=350)
+
+
+# #graph of individual data points
+# fviz_pca_ind(res.pca,
+#              col.ind = "cos2", # Color by the quality of representation
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE     # Avoid text overlapping
+#              )
+
+#pca.plot <- autoplot(res.pca, data = stand.environ)
+#pca.plot
+
+# Eigenvalues
+#http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/112-pca-principal-component-analysis-essentials/
+# examine the eigenvalues to determine the number of principal components to be considered. 
+
+#An eigenvalue > 1 indicates that PCs account for more variance than accounted by one of the original variables in standardized data. This is commonly used as a cutoff point for which PCs are retained. This holds true only when the data are standardized.
+
+#You can also limit the number of component to that number that accounts for a certain fraction of the total variance. For example, if you are satisfied with 70% of the total variance explained then use the number of components to achieve that.
+
+eig.val <- get_eigenvalue(res.pca)
+eig.val
+  
+# Results for Variables
+res.var <- get_pca_var(res.pca)
+res.var$coord          # Coordinates
+res.var$contrib        # Contributions to the PCs
+res.var$cos2           # Quality of representation 
+
+
+#The quality of representation of the variables on factor map is called cos2 (square cosine, squared coordinates)
+
+png(height=800, width=800, file="corr_plot_pca.png", type = "cairo")
+corrplot(res.var$cos2, 
+         method = "circle",
+         is.corr = F,
+         order = "original",
+         tl.col="black")
+dev.off()
+
+
+
+# Contributions of variables to PC1
+pca.comp1 <- fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)+
+  ggtitle("Dim 1")
+pca.comp2 <- fviz_contrib(res.pca, choice = "var", axes = 2, top = 10)+
+  ggtitle("Dim 2")
+pca.comp3 <- fviz_contrib(res.pca, choice = "var", axes = 3, top = 10)+
+  ggtitle("Dim 3")
+pca.comp4 <- fviz_contrib(res.pca, choice = "var", axes = 4, top = 10)+
+  ggtitle("Dim 4")
+pca.comp5 <- fviz_contrib(res.pca, choice = "var", axes = 5, top = 10)+
+  ggtitle("Dim 5")
+pca.comp6 <- fviz_contrib(res.pca, choice = "var", axes = 6, top = 10)+
+  ggtitle("Dim 6")
+
+var.contribution <- grid.arrange(pca.comp1,pca.comp2,pca.comp3,pca.comp4,pca.comp5,pca.comp6, nrow=3, ncol = 2)
+
+# Total cos2 of variables on Dim.1 to Dim.4
+fviz_cos2(res.pca, choice = "var", axes = 1)
+
+# A high cos2 indicates a good representation of the variable on the principal component. In this case the variable is positioned close to the circumference of the correlation circle.
+# 
+# A low cos2 indicates that the variable is not perfectly represented by the PCs. In this case the variable is close to the center of the circle.
+
+
+
+#attach pc axes later selected to data
+pca.axes <- res.pca$x %>% 
+  as_tibble %>% 
+  bind_cols(summary.ind) %>% 
+  mutate(rec_index = as.factor(rec_index)) %>% 
+  bind_cols(summary.vars) %>% 
+  dplyr::rename(OC=`O/C`, ci_index=`Connectance Index`)
+  
+#GAM resources
+#https://m-clark.github.io/generalized-additive-models/application.html#multiple-predictors
+
+
+#gamma 1.4 to reduce overfitting
+
+#the Variance Inflation Factor, which determines multicollinearity found values > 5 (Figure S5) for PDO, Harbour seals, steelhead salmon, pink salmon, Cherry point herring stock, and orcas. As a result, we eliminated these five variables from the final models.
+
+#full model with no interaction terms
+
+#Ascendency
+
+base="tp"
+
+pc.gam.tp.as <- gam(Ascendency ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                   # s(PC2, bs=base, k=8),
+            #        s(PC3, bs=base, k=8),
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.tp.as,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.tp.as)
+
+try(concurvity(pc.gam.tp.as, full = TRUE))
+
+summary(pc.gam.tp.as)
+
+
+base="ts"
+
+pc.gam.ts.as <- gam(Ascendency ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                   # s(PC2, bs=base, k=8),
+            #        s(PC3, bs=base, k=8),
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.ts.as,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.ts.as)
+
+try(concurvity(pc.gam.ts.as, full = TRUE))
+
+summary(pc.gam.ts.as)
+
+
+anova.gam(pc.gam.tp.as, pc.gam.ts.as, test="F")
+
+aic.model.values <- AIC(pc.gam.tp.as, pc.gam.ts.as) %>% 
+  arrange(desc(AIC))
+
+aic.model.values
+
+#model 1 with terms that are 0 
+
+#Overhead
+
+base="tp"
+
+pc.gam.tp.ov <- gam(Overhead ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                   # s(PC2, bs=base, k=8),
+            #        s(PC3, bs=base, k=8),
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.tp.ov,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.tp.ov)
+
+try(concurvity(pc.gam.tp.ov, full = TRUE))
+
+summary(pc.gam.tp.ov)
+
+
+base="ts"
+
+pc.gam.ts.ov <- gam(Overhead ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                   # s(PC2, bs=base, k=8),
+            #        s(PC3, bs=base, k=8),
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.ts.ov,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.ts.ov)
+
+try(concurvity(pc.gam.ts.ov, full = TRUE))
+
+summary(pc.gam.ts.ov)
+
+
+
+#O/C
+
+base="tp"
+
+pc.gam.tp.oc <- gam(OC ~ 
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.tp.oc,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.tp.oc)
+
+try(concurvity(pc.gam.tp.oc, full = TRUE))
+
+summary(pc.gam.tp.oc)
+
+
+base="ts"
+
+pc.gam.ts.oc <- gam(OC ~ 
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+
+
+saveRDS(pc.gam.ts.oc,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.ts.oc)
+
+try(concurvity(pc.gam.ts.oc, full = TRUE))
+
+summary(pc.gam.ts.oc)
+
+anova.gam(pc.gam.tp.oc, pc.gam.ts.oc, test="F")
+
+aic.model.values <- AIC(pc.gam.tp.oc, pc.gam.ts.oc) %>% 
+  arrange(desc(AIC))
+
+aic.model.values
+
+
+
+#Connectance Index
+ 
+
+base="tp"
+ 
+pc.gam.tp.ci <- gam(ci_index ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), 
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+
+#glm
+
+pc.glm.tp.ci <- glm(ci_index ~ PC1 + PC2 + PC3, family= gaussian, data=pca.axes)
+
+saveRDS(pc.gam.tp.ci,"pc_gam_tp_connindx.rds")
+
+gam.check(pc.gam.tp.as)
+
+try(concurvity(pc.gam.tp.as, full = TRUE))
+
+summary(pc.gam.tp.as)
+
+
+base="ts"
+
+pc.gam.ts.as <- gam(Ascendency ~ 
+                   # s(rec_index, bs = 're') ,
+                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
+                   # s(PC2, bs=base, k=8),
+            #        s(PC3, bs=base, k=8),
+                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
+
+saveRDS(pc.gam.ts.as,"pc_gam_tp_ascendency.rds")
+
+gam.check(pc.gam.ts.as)
+
+try(concurvity(pc.gam.ts.as, full = TRUE))
+
+summary(pc.gam.ts.as)
+
+
+anova.gam(pc.gam.tp.as, pc.gam.ts.as, test="F")
+
+aic.model.values <- AIC(pc.gam.tp.as, pc.gam.ts.as) %>% 
+  arrange(desc(AIC))
+
+aic.model.values
+
+
+
+
+#https://cran.r-project.org/web/packages/mgcViz/vignettes/mgcviz.html
+herring.viz <- getViz(herring.pc.final)
+
+print(plot(herring.viz, allTerms = T), pages = 1) # Calls print.plotGam()
+
+herring.pc.draw <- draw(herring.pc.final)+
+  theme_classic()
+
+herring.pc.appraise <- appraise(herring.pc.final)
+
+#use to plot 2D
+#plot(sm(herring.viz, 2)) + l_fitRaster() + l_fitContour() + l_points()
+
+ggsave("pc_gam_appraise.png", herring.pc.appraise, device="png",width=10,height=8, dpi=350)
+
+ggsave("pc_gam_draw.png", herring.pc.draw, device="png",width=10,height=8, dpi=350)
+
+
+#use sm to extract smooth terms from model
+
+herring.viz.term.1 <- plot(sm(herring.viz, 1)) +
+  l_fitRaster() + 
+  l_fitContour() + 
+  l_points() +
+  theme_classic() +
+  labs(tag = "A") +
+  labs(x="Longitude", y = "Latitude")
+
+  ggtitle("s(long,lat):year")
+
+herring.viz.term.2 <- plot(sm(herring.viz, 2)) +
+    l_ciPoly() +
+  l_fitLine(colour = "black") + 
+    # l_fitLine(colour = "darkred") + 
+  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
+  #  l_ciLine(mul = 5, colour = "darkblue", linetype = 2) + 
+  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
+  theme_classic() +
+  labs(tag = "B")+
+  labs(x="Predator size", y = "Effect") +
+  ggtitle("s(Predator size):year")
+
+herring.viz.term.3 <- plot(sm(herring.viz, 3)) +
+    l_ciPoly() +
+  l_fitLine(colour = "black") + 
+    #  l_fitLine(colour = "red") + 
+  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
+  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
+  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
+  theme_classic() +
+  labs(tag = "C") +
+  labs(x="Gaussian quantiles", y = "Effects")+
+  ggtitle("s(predator group):year")
+
+herring.viz.term.4 <- plot(sm(herring.viz, 4)) +
+  l_ciPoly() +
+  l_fitLine(colour = "black") + 
+  # l_fitLine(colour = "red") + 
+  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
+  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
+  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
+  theme_classic() +
+  labs(tag = "D") +
+  labs(x="Gaussian quantiles", y = "Effects")+
+  ggtitle("s(Basin):year")
+
+herring.viz.term.5 <- plot(sm(herring.viz, 5)) +
+  l_ciPoly() +
+  l_fitLine(colour = "black") + 
+    #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
+   # l_ciLine(mul = 5, colour = "gray85", linetype = 2) + 
+  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
+  theme_classic() +
+  labs(tag = "E") +
+  labs(x="PC 6", y = "Effect")+
+  ggtitle("s(PC6)")
+
+
+herring.viz.term.6 <- plot(pterm(herring.viz, 1)) +
+   l_ciPoly() +
+    l_fitLine(colour = "black") + 
+  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
+  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
+  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
+  theme_classic() +
+  labs(tag = "F") +
+  labs(x="Partial effect of year", y = "Year")+
+  ggtitle("")
+
+
+grid.sample <- gridPrint(herring.viz.term.1, herring.viz.term.2, herring.viz.term.3,
+                         herring.viz.term.4, herring.viz.term.5, herring.viz.term.6, ncol=3, nrow=2)
+
+
+ggsave("pc_gam_plot.png", grid.sample, device="png",width=10,height=8, dpi=350)
+
+
+```
+
+
+Resources used
+Rescaling
+https://stackoverflow.com/questions/32278825/how-to-change-the-resolution-of-a-raster-layer-in-r
+https://search.r-project.org/CRAN/refmans/climateStability/html/rescale0to1.html
+Metadata Halpern
+https://knb.ecoinformatics.org/view/doi%3A10.5063%2FF19C6VN5
+Mollweide projection
+https://epsg.io/54009
+Merge
+https://www.rdocumentation.org/packages/raster/versions/3.4-13/topics/merge
+Extract
+https://isciences.gitlab.io/exactextractr/reference/exact_extract.html
