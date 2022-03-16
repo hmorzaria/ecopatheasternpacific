@@ -32,14 +32,15 @@ make_polygons <- function(thislocation, coords.ecopath){
   ####SpatialPolygonsDataFrame####
   data = data.frame(f=1)
   spdf = SpatialPolygonsDataFrame(sps,data)
-  spdf
   
-  summary(spdf)
-  spplot(spdf)
-  ####exportar poligono###
+  spdf.sf <- st_as_sf(spdf) %>% 
+    mutate(location = thislocation)
   
-  writeOGR(obj=spdf, dsn="shapedir", layer=paste0(thislocation), driver="ESRI Shapefile", overwrite_layer = TRUE)
+   ####exportar poligono###
   
+  #writeOGR(obj=spdf, dsn="shapedir", layer=paste0(thislocation), driver="ESRI Shapefile", overwrite_layer = TRUE)
+  
+  st_write(spdf.sf, here("shapedir",paste0(thislocation,".shp")), append = FALSE)
 }
 
 

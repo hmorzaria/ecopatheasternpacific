@@ -5,7 +5,8 @@
               "plyr","here", "raster", "exactextractr",
               "climateStability","robis","mgcv","lares",
               "car","Redmonder","metan","vegan","paran",
-              "factoextra","gridExtra","corrplot","mgcViz")
+              "factoextra","gridExtra","corrplot","mgcViz","ggspatial",
+              "ggrepel","patchwork","png","grid")
 
 # Install CRAN packages (if not already installed)
 .inst <- .packages %in% installed.packages()

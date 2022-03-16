@@ -53,20 +53,127 @@ lapply(locations.ecopath, make_polygons, coords.ecopath)
 
 #simbolos http://www.sthda.com/english/wiki/r-plot-pch-symbols-the-different-point-shapes-available-in-r
 
+shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) %>% 
+    mutate(location=if_else(location=="North and central GC","NC Gulf of California",if_else(location=="Southeastern Gulf of California","SE Gulf of California", 
+                                                                                         if_else(location=="Ulloa model","Ulloa", location)))) %>% 
+  filter(!location %in% c("Sinaloa benthic","Benthic GC (Sonora)","Northern GC")) %>% 
+      mutate(model=factor(location, levels = c("NC Gulf of California","Isla Natividad","Bahía de Tortugas","Ulloa","La Paz","Bahía Magdalena","SE Gulf of California","Cabo Pulmo","Isla Isabel","Islas Marietas","Chamela", "Isla del Coco","Darwin and Wolf")))
 
-shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) 
+eco.crs <- st_crs(shape.list)
 
-world <- ne_countries(scale = "medium", returnclass = "sf")
-class(world)
+eco.point <- shape.list %>% 
+  st_transform(.,6362) %>% 
+  st_centroid() %>% 
+  st_transform(.,eco.crs) %>% 
+   mutate(lat = unlist(map(.$geometry,2)),
+           long = unlist(map(.$geometry,1)))
 
-mapa.locs <- ggplot(data = world) +
-    geom_sf() +
-    geom_sf(data = shape.list, fill="yellow") + 
-    coord_sf(xlim = c(-119, -70), ylim = c(-10, 35), expand = FALSE) +
-   xlab("Longitud") + ylab("Latitud") +
+pacific.lme <- c("California Current","Gulf of California", "Pacific Central-American Coastal")
+
+lme.shp <- st_read("LME66.shp") %>% 
+  filter(LME_NAME %in% pacific.lme)
+
+lme.shp.centroid <- lme.shp %>% 
+  st_transform(.,6362) %>% 
+  st_centroid() %>% 
+  st_transform(.,eco.crs) %>% 
+   mutate(ID=1:nrow(.)) %>% 
+   mutate(lat = unlist(map(.$geometry,2)),
+           long = unlist(map(.$geometry,1)))
+
+lme.shp.wgs <-  st_transform(lme.shp, eco.crs)
+
+lme.pol <- cbind(lme.shp.wgs, st_coordinates(lme.shp.centroid))
+
+#plot points
+#large map, LMEs labeled
+
+countries <- ne_countries(10,
+  "countries",
+  returnclass = "sf"
+) %>% 
+  filter(region_un=="Americas")
+
+countries.pol <- cbind(countries, st_coordinates(st_centroid(countries)))
+
+
+col.pal <- c("#deebf7", "#9ecae1", "#3182bd")
+
+
+mapa.lme <- ggplot(data = countries) +
+  geom_sf(fill = ) +  
+  geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
+   geom_text(aes(x = -103, y = 25, label = "Mexico"), stat = "unique", size = 5) +  
+  scale_fill_manual(values=col.pal, name="LME") +
+  geom_sf(data = eco.point) +
+  #-118.33,-2.81,-76.2,36.31
+    coord_sf(xlim = c(-118.33, -76.2), ylim = c(-2.81, 36.31), expand = FALSE) +
+  xlab("Long") + ylab("Lat") +
   theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
-        size = 0.1), panel.background = element_rect(fill = "aliceblue"))
+                                        size = 0.1), panel.background = element_rect(fill = "white")) +
+  annotation_scale(location = "bl", width_hint = 0.4) +
+  annotation_north_arrow(location = "bl", which_north = "true", 
+                         pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
+                         style = north_arrow_fancy_orienteering) +
+  theme(legend.position="bottom")
 
+ggsave(here("map_lme.png"), mapa.lme, width = 7, height = 7)
+  
+eco.north <- eco.point %>% 
+  filter(!model %in% c("Isla del Coco","Darwin and Wolf"))
+
+mapa.secc1 <- ggplot(data = countries) +
+  geom_sf() +  
+  geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
+  geom_text(aes(x = -107, y = 28, label = "Mexico"), stat = "unique", size = 5) +  
+  scale_fill_manual(values=col.pal, name="LME") +
+  geom_sf(data = eco.north) + 
+  geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
+  #-118.83,17.6,-100.72,32.19
+  coord_sf(xlim = c(-118.83, -100.72), ylim = c(17.6, 32.19), expand = FALSE) +
+  xlab("Long") + ylab("Lat") +
+  theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
+                                        size = 0.1), panel.background = element_rect(fill = "white")) +
+  annotation_scale(location = "bl", width_hint = 0.4) +
+  theme(legend.position="none") +
+  geom_text_repel(data = eco.north, aes(x = long, y = lat, label = model), 
+        fontface = "plain", nudge_x = c(-1.5, -1.5, 1, 1, 1,-2,-2,1,2,-2,-1), nudge_y = c(-0.75, -0.25, -0.5,0,0,0.5,0,0,0.5,-0.5,0), size = 3)
+
+ggsave(here("map_north.png"), mapa.secc1, width = 6, height = 6)
+
+eco.south <- eco.point %>% 
+  filter(model %in% c("Isla del Coco","Darwin and Wolf"))
+
+
+mapa.secc2 <- ggplot(data = countries) +
+  geom_sf() +  
+  geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
+  geom_text(aes(x = -78, y = -1, label = "Ecuador"), stat = "unique", size = 5) +  
+  scale_fill_manual(values=col.pal, name="LME") +
+  geom_sf(data = eco.south) + 
+  geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
+  #-94.22,-6.07,-76.11,10.01
+  coord_sf(xlim = c(-94.22, -76.11), ylim = c(-6.07, 10.01), expand = FALSE) +
+  xlab("Long") + ylab("Lat") +
+  theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
+                                        size = 0.1), panel.background = element_rect(fill = "white")) +
+  annotation_scale(location = "bl", width_hint = 0.4) +
+  theme(legend.position="none") +
+  geom_text_repel(data = eco.south, aes(x = long, y = lat, label = model), 
+        fontface = "plain", nudge_x = c(1, -1.5), nudge_y = c(1, 0.25), size = 3)
+
+ggsave(here("map_south.png"), mapa.secc2, width = 6, height = 6)
+
+
+plot1 <- readPNG('map_lme.png')
+plot2 <- readPNG('map_north.png')
+plot3 <- readPNG('map_south.png')
+
+lay <- rbind(c(1,1,1,2,2),
+             c(1,1,1,3,3))
+
+g2 <- arrangeGrob(rasterGrob(plot1),rasterGrob(plot2),rasterGrob(plot3), layout_matrix = lay, padding = 0.01)
+ggsave('ecopath_map.png',g2,width=7,height=6,dpi=300)
 ```
 
 
@@ -248,7 +355,7 @@ write_csv(summary.index, "resumen_indices_ecopath.csv")
 
 ```
 
-GAM
+Summary models and ranked correlations
 
 ```{r}
 
@@ -307,8 +414,8 @@ ranked.cross <- summary.models %>%
   mutate_if(is.numeric, replace_na, '0') %>% 
   dplyr::select(ends_with("media")) %>% 
   corr_cross(., # name of dataset
-  max_pvalue = 0.05, # display only significant correlations (at 5% level)
-  top = 20 # display top 10 couples of variables (by correlation coefficient)
+  max_pvalue = 0.01, # display only significant correlations (at 5% level)
+  top = 30 # display top 10 couples of variables (by correlation coefficient)
 )
 
 ggsave("rank_correlations_plot.png", ranked.cross, device="png",width=10,height=9, dpi=300)
@@ -353,24 +460,81 @@ write_csv(vif.res,"VIF_values.csv")
 
 ```
 
+#all variables
+```{r}
+
+model.indicators <- c("Calculated total net primary production", "Total primary production/total biomass", "Total biomass/total throughput", "Connectance Index", "Ascendency","Overhead", "Capacity")
+
+new.model.indicators <- c("primary_production", "primary_prod_biomass", "tot_biomass_tot_throughput", "connectance", "ascendency","overhead", "capacity")
+  
+  
+summary.ind <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  dplyr::filter(Variable %in% model.indicators) %>% 
+  mutate(value = if_else(is.na(value),0,value)) %>% 
+  group_by(Variable) %>% 
+ # resca(value, new_min = 0, new_max = 1) %>% 
+ # dplyr::select(-value) %>% 
+  pivot_wider(names_from = Variable, values_from = value) %>% 
+  mutate(rec_index=1:nrow(.)) %>% 
+  rename_with(~ new.model.indicators, all_of(model.indicators))
+
+
+summary.vars <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  dplyr::filter(grepl("media",Variable)) %>% 
+  mutate(value = if_else(is.na(value),0,value)) %>% 
+  group_by(Variable) %>% 
+  resca(value, new_min = 0, new_max = 1) %>% 
+  dplyr::select(-value) %>% 
+  pivot_wider(names_from = Variable, values_from = value_res) %>% 
+  dplyr::rename("Richness"=riqueza_media,"Productivity"=productividad_media,"Artisanal fisheries"=artesal_media,"Pollution"=contamicion_media,"Boat traffic"=trafico_barcos_media,"Cumulative impact"=impacto_media) %>% 
+  dplyr::select(-model)
+
+data.summary <- cbind(summary.ind, summary.vars)
+
+
+get_glm <- function(this.variable, data.summary){
+  
+  print(this.variable)
+  
+  pc.glm <-  glm(formula = substitute(i ~ Productivity + `Artisanal fisheries` + `Cumulative impact`, list(i = as.name(this.variable))), family= gaussian, data=data.summary)
+  
+  saveRDS(pc.glm,here("model_results",paste0("glm_",this.variable, ".rds")))
+  
+  
+return(pc.glm)
+
+} 
+
+glm.models <- lapply(new.model.indicators, get_glm, data.summary)
+
+```
+
 
 #PCA
 
 ```{r}
 #PCA on variables 
 
-#Ascendency, Overhead and the Overhead/ Capacity ratio 
+#net primary production, PP/B, Biomass/ Total system throughput, connectance index, ascendency, overhead and development capacity
 
+model.indicators <- c("Calculated total net primary production", "Total primary production/total biomass", "Total biomass/total throughput", "Connectance Index", "Ascendency","Overhead", "Capacity")
 
+new.model.indicators <- c("primary_production", "primary_prod_biomass", "tot_biomass_tot_throughput", "connectance", "ascendency","overhead", "capacity")
+  
+  
 summary.ind <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
    pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
-  dplyr::filter(Variable %in% c("Ascendency","Overhead", "O/C", "Connectance Index")) %>% 
+  dplyr::filter(Variable %in% model.indicators) %>% 
   mutate(value = if_else(is.na(value),0,value)) %>% 
   group_by(Variable) %>% 
  # resca(value, new_min = 0, new_max = 1) %>% 
  # dplyr::select(-value) %>% 
   pivot_wider(names_from = Variable, values_from = value) %>% 
-  mutate(rec_index=1:nrow(.))
+  mutate(rec_index=1:nrow(.)) %>% 
+  rename_with(~ new.model.indicators, all_of(model.indicators))
+
 
 summary.vars <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
    pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
@@ -517,8 +681,7 @@ pca.axes <- res.pca$x %>%
   as_tibble %>% 
   bind_cols(summary.ind) %>% 
   mutate(rec_index = as.factor(rec_index)) %>% 
-  bind_cols(summary.vars) %>% 
-  dplyr::rename(OC=`O/C`, ci_index=`Connectance Index`)
+  bind_cols(summary.vars) 
   
 #GAM resources
 #https://m-clark.github.io/generalized-additive-models/application.html#multiple-predictors
@@ -530,281 +693,21 @@ pca.axes <- res.pca$x %>%
 
 #full model with no interaction terms
 
-#Ascendency
 
-base="tp"
-
-pc.gam.tp.as <- gam(Ascendency ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                   # s(PC2, bs=base, k=8),
-            #        s(PC3, bs=base, k=8),
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.tp.as,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.tp.as)
-
-try(concurvity(pc.gam.tp.as, full = TRUE))
-
-summary(pc.gam.tp.as)
-
-
-base="ts"
-
-pc.gam.ts.as <- gam(Ascendency ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                   # s(PC2, bs=base, k=8),
-            #        s(PC3, bs=base, k=8),
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.ts.as,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.ts.as)
-
-try(concurvity(pc.gam.ts.as, full = TRUE))
-
-summary(pc.gam.ts.as)
-
-
-anova.gam(pc.gam.tp.as, pc.gam.ts.as, test="F")
-
-aic.model.values <- AIC(pc.gam.tp.as, pc.gam.ts.as) %>% 
-  arrange(desc(AIC))
-
-aic.model.values
-
-#model 1 with terms that are 0 
-
-#Overhead
-
-base="tp"
-
-pc.gam.tp.ov <- gam(Overhead ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                   # s(PC2, bs=base, k=8),
-            #        s(PC3, bs=base, k=8),
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.tp.ov,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.tp.ov)
-
-try(concurvity(pc.gam.tp.ov, full = TRUE))
-
-summary(pc.gam.tp.ov)
-
-
-base="ts"
-
-pc.gam.ts.ov <- gam(Overhead ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                   # s(PC2, bs=base, k=8),
-            #        s(PC3, bs=base, k=8),
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.ts.ov,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.ts.ov)
-
-try(concurvity(pc.gam.ts.ov, full = TRUE))
-
-summary(pc.gam.ts.ov)
-
-
-
-#O/C
-
-base="tp"
-
-pc.gam.tp.oc <- gam(OC ~ 
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.tp.oc,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.tp.oc)
-
-try(concurvity(pc.gam.tp.oc, full = TRUE))
-
-summary(pc.gam.tp.oc)
-
-
-base="ts"
-
-pc.gam.ts.oc <- gam(OC ~ 
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-
-
-saveRDS(pc.gam.ts.oc,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.ts.oc)
-
-try(concurvity(pc.gam.ts.oc, full = TRUE))
-
-summary(pc.gam.ts.oc)
-
-anova.gam(pc.gam.tp.oc, pc.gam.ts.oc, test="F")
-
-aic.model.values <- AIC(pc.gam.tp.oc, pc.gam.ts.oc) %>% 
-  arrange(desc(AIC))
-
-aic.model.values
-
-
-
-#Connectance Index
- 
-
-base="tp"
- 
-pc.gam.tp.ci <- gam(ci_index ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), 
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-
-#glm
-
-pc.glm.tp.ci <- glm(ci_index ~ PC1 + PC2 + PC3, family= gaussian, data=pca.axes)
-
-saveRDS(pc.gam.tp.ci,"pc_gam_tp_connindx.rds")
-
-gam.check(pc.gam.tp.as)
-
-try(concurvity(pc.gam.tp.as, full = TRUE))
-
-summary(pc.gam.tp.as)
-
-
-base="ts"
-
-pc.gam.ts.as <- gam(Ascendency ~ 
-                   # s(rec_index, bs = 're') ,
-                    s(PC1, PC2, PC3, bs = base, k=10), #PC axis are on the same scale
-                   # s(PC2, bs=base, k=8),
-            #        s(PC3, bs=base, k=8),
-                  family=gaussian(link="identity"), method="REML", gamma=1.4, select=TRUE, data=pca.axes)
-
-saveRDS(pc.gam.ts.as,"pc_gam_tp_ascendency.rds")
-
-gam.check(pc.gam.ts.as)
-
-try(concurvity(pc.gam.ts.as, full = TRUE))
-
-summary(pc.gam.ts.as)
-
-
-anova.gam(pc.gam.tp.as, pc.gam.ts.as, test="F")
-
-aic.model.values <- AIC(pc.gam.tp.as, pc.gam.ts.as) %>% 
-  arrange(desc(AIC))
-
-aic.model.values
-
-
-
-
-#https://cran.r-project.org/web/packages/mgcViz/vignettes/mgcviz.html
-herring.viz <- getViz(herring.pc.final)
-
-print(plot(herring.viz, allTerms = T), pages = 1) # Calls print.plotGam()
-
-herring.pc.draw <- draw(herring.pc.final)+
-  theme_classic()
-
-herring.pc.appraise <- appraise(herring.pc.final)
-
-#use to plot 2D
-#plot(sm(herring.viz, 2)) + l_fitRaster() + l_fitContour() + l_points()
-
-ggsave("pc_gam_appraise.png", herring.pc.appraise, device="png",width=10,height=8, dpi=350)
-
-ggsave("pc_gam_draw.png", herring.pc.draw, device="png",width=10,height=8, dpi=350)
-
-
-#use sm to extract smooth terms from model
-
-herring.viz.term.1 <- plot(sm(herring.viz, 1)) +
-  l_fitRaster() + 
-  l_fitContour() + 
-  l_points() +
-  theme_classic() +
-  labs(tag = "A") +
-  labs(x="Longitude", y = "Latitude")
-
-  ggtitle("s(long,lat):year")
-
-herring.viz.term.2 <- plot(sm(herring.viz, 2)) +
-    l_ciPoly() +
-  l_fitLine(colour = "black") + 
-    # l_fitLine(colour = "darkred") + 
-  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
-  #  l_ciLine(mul = 5, colour = "darkblue", linetype = 2) + 
-  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
-  theme_classic() +
-  labs(tag = "B")+
-  labs(x="Predator size", y = "Effect") +
-  ggtitle("s(Predator size):year")
-
-herring.viz.term.3 <- plot(sm(herring.viz, 3)) +
-    l_ciPoly() +
-  l_fitLine(colour = "black") + 
-    #  l_fitLine(colour = "red") + 
-  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
-  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
-  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
-  theme_classic() +
-  labs(tag = "C") +
-  labs(x="Gaussian quantiles", y = "Effects")+
-  ggtitle("s(predator group):year")
-
-herring.viz.term.4 <- plot(sm(herring.viz, 4)) +
-  l_ciPoly() +
-  l_fitLine(colour = "black") + 
-  # l_fitLine(colour = "red") + 
-  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
-  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
-  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
-  theme_classic() +
-  labs(tag = "D") +
-  labs(x="Gaussian quantiles", y = "Effects")+
-  ggtitle("s(Basin):year")
-
-herring.viz.term.5 <- plot(sm(herring.viz, 5)) +
-  l_ciPoly() +
-  l_fitLine(colour = "black") + 
-    #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
-   # l_ciLine(mul = 5, colour = "gray85", linetype = 2) + 
-  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
-  theme_classic() +
-  labs(tag = "E") +
-  labs(x="PC 6", y = "Effect")+
-  ggtitle("s(PC6)")
-
-
-herring.viz.term.6 <- plot(pterm(herring.viz, 1)) +
-   l_ciPoly() +
-    l_fitLine(colour = "black") + 
-  #l_rug(mapping = aes(x=x, y=y), alpha = 0.8) +
-  #  l_ciLine(mul = 5, colour = "blue", linetype = 2) + 
-  #  l_points(shape = 19, size = 1, alpha = 0.1) + 
-  theme_classic() +
-  labs(tag = "F") +
-  labs(x="Partial effect of year", y = "Year")+
-  ggtitle("")
-
-
-grid.sample <- gridPrint(herring.viz.term.1, herring.viz.term.2, herring.viz.term.3,
-                         herring.viz.term.4, herring.viz.term.5, herring.viz.term.6, ncol=3, nrow=2)
-
-
-ggsave("pc_gam_plot.png", grid.sample, device="png",width=10,height=8, dpi=350)
+get_glm <- function(this.variable, pca.axes){
+  
+  print(this.variable)
+  
+  pc.glm <-  glm(formula = substitute(i ~ PC1 + PC2 + PC3, list(i = as.name(this.variable))), family= gaussian, data=pca.axes)
+  
+  saveRDS(pc.glm,here("model_results",paste0("pc_glm_",this.variable, ".rds")))
+  
+  
+return(pc.glm)
+
+} 
+
+glm.pca.models <- lapply(new.model.indicators, get_glm, pca.axes)
 
 
 ```
