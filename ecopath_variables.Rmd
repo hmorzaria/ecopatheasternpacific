@@ -32,7 +32,7 @@ liste_mod %>%
 ```
 
 
-```{r}
+```{r area map}
 
 coords.ecopath <- read_xlsx("JCPA_Inputs Ecopaths coordinates_rev.xlsx", sheet = 1)
 
@@ -106,11 +106,13 @@ point.lme %>%
   st_drop_geometry() %>% 
   write_csv(here("lme_model_points.csv"))
 
+col.pal <- brewer.pal(8, "Set2")[c(1,2,4)]
+
 mapa.lme <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-   geom_text(aes(x = -103, y = 25, label = "Mexico"), stat = "unique", size = 5) +  
-  scale_fill_manual(values=col.pal, name="LME") +
+  scale_fill_manual(values = col.pal, name = "LME")+
+  geom_text(aes(x = -103, y = 25, label = "Mexico"), stat = "unique", size = 6) +  
   geom_sf(data = eco.point) +
   #-118.33,-2.81,-76.2,36.31
     coord_sf(xlim = c(-118.33, -76.2), ylim = c(-2.81, 36.31), expand = FALSE) +
@@ -126,13 +128,14 @@ mapa.lme <- ggplot(data = countries) +
 ggsave(here("map_lme.png"), mapa.lme, width = 7, height = 7)
   
 eco.north <- eco.point %>% 
-  filter(!model %in% c("Isla del Coco","Darwin and Wolf"))
+  filter(!model %in% c("Isla del Coco","Darwin and Wolf")) %>% 
+  mutate(map_index = c(3,6,7,11,9,2,10,5,1,8,4))
 
 mapa.secc1 <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-  geom_text(aes(x = -107, y = 28, label = "Mexico"), stat = "unique", size = 5) +  
-  scale_fill_manual(values=col.pal, name="LME") +
+  geom_text(aes(x = -107, y = 28, label = "Mexico"), stat = "unique", size = 6) +  
+  scale_fill_manual(values = col.pal, name = "LME")+
   geom_sf(data = eco.north) + 
   geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
   #-118.83,17.6,-100.72,32.19
@@ -142,20 +145,21 @@ mapa.secc1 <- ggplot(data = countries) +
                                         size = 0.1), panel.background = element_rect(fill = "white")) +
   annotation_scale(location = "bl", width_hint = 0.4) +
   theme(legend.position="none") +
-  geom_text_repel(data = eco.north, aes(x = long, y = lat, label = model), 
-        fontface = "plain", nudge_x = c(-1.5, -1.5, 1, 1, 1,-2,-2,1,2,-2,-1), nudge_y = c(-0.75, -0.25, -0.5,0,0,0.5,0,0,0.5,-0.5,0), size = 3)
+  geom_text_repel(data = eco.north, aes(x = long, y = lat, label = map_index), 
+        fontface = "plain", nudge_x = c(-1.5, -1.5, 1, 1, 1,-2,-2,1,2,-2,-1), nudge_y = c(-0.75, -0.25, -0.5,0,0,0.5,0,0,0.5,-0.5,0), size = 5)
 
 ggsave(here("map_north.png"), mapa.secc1, width = 6, height = 6)
 
 eco.south <- eco.point %>% 
-  filter(model %in% c("Isla del Coco","Darwin and Wolf"))
+  filter(model %in% c("Isla del Coco","Darwin and Wolf")) %>% 
+  mutate(map_index = c(13,12))
 
 
 mapa.secc2 <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-  geom_text(aes(x = -78, y = -1, label = "Ecuador"), stat = "unique", size = 5) +  
-  scale_fill_manual(values=col.pal, name="LME") +
+  geom_text(aes(x = -78, y = -1, label = "Ecuador"), stat = "unique", size = 6) +  
+  scale_fill_manual(values = col.pal, name = "LME")+
   geom_sf(data = eco.south) + 
   geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
   #-94.22,-6.07,-76.11,10.01
@@ -165,8 +169,8 @@ mapa.secc2 <- ggplot(data = countries) +
                                         size = 0.1), panel.background = element_rect(fill = "white")) +
   annotation_scale(location = "bl", width_hint = 0.4) +
   theme(legend.position="none") +
-  geom_text_repel(data = eco.south, aes(x = long, y = lat, label = model), 
-        fontface = "plain", nudge_x = c(1, -1.5), nudge_y = c(1, 0.25), size = 3)
+  geom_text_repel(data = eco.south, aes(x = long, y = lat, label = map_index), 
+        fontface = "plain", nudge_x = c(1, -1.5), nudge_y = c(1, 0.25), size = 5)
 
 ggsave(here("map_south.png"), mapa.secc2, width = 6, height = 6)
 
@@ -363,7 +367,7 @@ write_csv(summary.index, "resumen_indices_ecopath.csv")
 
 Summary models and ranked correlations
 
-```{r}
+```{r summary models}
 
 summary.models <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
@@ -391,7 +395,7 @@ lme.points <- read_csv(here("lme_model_points.csv")) %>%
                              if_else(model=="Southeastern","SE Gulf of California", 
                                      if_else(model=="Isla Natividad", "I. Natividad", 
                                              if_else(model=="Bahía Magdalena", "B. Magdalena", model))))) %>% 
-  mutate(LME_NAME = if_else(model == "Isla del Coco" | model == "Darwin and Wolf", "None", LME_NAME))
+  mutate(LME_NAME = if_else(model == "Isla del Coco" | model == "Darwin and Wolf", "Oceanic islands", LME_NAME))
 
 
 model.plot.data <- summary.models.plot %>% 
