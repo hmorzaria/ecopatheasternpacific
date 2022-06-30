@@ -483,9 +483,11 @@ write_csv(vif.res,"VIF_values.csv")
 #all variables
 ```{r}
 
-model.indicators <- c("Calculated total net primary production", "Total primary production/total biomass", "Total biomass/total throughput", "Connectance Index", "Ascendency","Overhead", "Capacity")
+#June 2022 TST, NPP, PP/B, B/TST, overhead y A/C.
 
-new.model.indicators <- c("primary_production", "primary_prod_biomass", "tot_biomass_tot_throughput", "connectance", "ascendency","overhead", "capacity")
+model.indicators <- c("Total system throughput", "Calculated total net primary production", "Total primary production/total biomass", "Total biomass/total throughput", "Overhead", "A/C")
+
+new.model.indicators <- c("total_system_throughput", "primary_production", "primary_prod_biomass", "tot_biomass_tot_throughput", "overhead", "A_C")
   
   
 summary.ind <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
@@ -519,6 +521,8 @@ get_glm <- function(this.variable, data.summary){
   print(this.variable)
   
   pc.glm <-  glm(formula = substitute(i ~ Productivity + `Artisanal fisheries` + `Cumulative impact`, list(i = as.name(this.variable))), family= gaussian, data=data.summary)
+  
+  print(summary(pc.glm))
   
   saveRDS(pc.glm,here("model_results",paste0("glm_",this.variable, ".rds")))
   
