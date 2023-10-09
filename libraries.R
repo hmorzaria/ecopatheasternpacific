@@ -6,7 +6,9 @@
               "climateStability","robis","mgcv","lares",
               "car","Redmonder","metan","vegan","paran",
               "factoextra","gridExtra","corrplot","mgcViz","ggspatial",
-              "ggrepel","patchwork","png","grid")
+              "ggrepel","patchwork","png","grid","stringi","stringr")
+
+devtools::install_github("thomasp85/patchwork")
 
 # Install CRAN packages (if not already installed)
 .inst <- .packages %in% installed.packages()

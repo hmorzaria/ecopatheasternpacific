@@ -31,6 +31,7 @@ liste_mod %>%
 
 ```
 
+Study area map
 
 ```{r area map}
 
@@ -97,8 +98,6 @@ countries <- ne_countries(10,
 countries.pol <- cbind(countries, st_coordinates(st_centroid(countries)))
 
 
-col.pal <- c("#deebf7", "#9ecae1", "#3182bd")
-
 point.lme <- st_join(eco.point, lme.pol, join = st_within) %>% 
   mutate(LME_NAME= if_else(model=="Cabo Pulmo", "Gulf of California", LME_NAME))
 
@@ -106,26 +105,38 @@ point.lme %>%
   st_drop_geometry() %>% 
   write_csv(here("lme_model_points.csv"))
 
-col.pal <- brewer.pal(8, "Set2")[c(1,2,4)]
+#col.pal <- brewer.pal(8, "Set2")[c(1,2,4)]
+
+get_palette <- function(n) {
+	require(RColorBrewer)
+	colors <- brewer.pal.info[brewer.pal.info$colorblind == TRUE, ]
+	col_vec <- unlist(mapply(brewer.pal, colors$maxcolors, rownames(colors)))
+	set.seed(3478)
+	return(sample(col_vec, n))
+}
+
+col.pal <- get_palette(3)
+
+col.pal <- c("#6BAED6","#FDB863", "#7F2704")
 
 mapa.lme <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-  scale_fill_manual(values = col.pal, name = "LME")+
+  scale_fill_manual(values = col.pal, labels=c("Calif. Current", "Gulf of Calif.", "Pac. Central Amer. Coastal"), name = "LME")+
   geom_text(aes(x = -103, y = 25, label = "Mexico"), stat = "unique", size = 6) +  
   geom_sf(data = eco.point) +
   #-118.33,-2.81,-76.2,36.31
     coord_sf(xlim = c(-118.33, -76.2), ylim = c(-2.81, 36.31), expand = FALSE) +
-  xlab("Long") + ylab("Lat") +
+  xlab("Longitude") + ylab("Latitude") +
   theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
                                         size = 0.1), panel.background = element_rect(fill = "white")) +
   annotation_scale(location = "bl", width_hint = 0.4) +
   annotation_north_arrow(location = "bl", which_north = "true", 
                          pad_x = unit(0.75, "in"), pad_y = unit(0.5, "in"),
                          style = north_arrow_fancy_orienteering) +
-  theme(legend.position="bottom")
+  theme(legend.position="bottom", axis.text = element_text(size = 11), axis.title = element_text(size = 13), legend.text = element_text(size = 13), legend.title = element_text(size = 14))
 
-ggsave(here("map_lme.png"), mapa.lme, width = 7, height = 7)
+ggsave(here("map_lme.png"), mapa.lme, width = 10, height = 10)
   
 eco.north <- eco.point %>% 
   filter(!model %in% c("Isla del Coco","Darwin and Wolf")) %>% 
@@ -134,21 +145,23 @@ eco.north <- eco.point %>%
 mapa.secc1 <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-  geom_text(aes(x = -107, y = 28, label = "Mexico"), stat = "unique", size = 6) +  
-  scale_fill_manual(values = col.pal, name = "LME")+
+  geom_text(aes(x = -107, y = 28, label = "Mexico"), stat = "unique", size = 5) +  
+  scale_fill_manual(values = col.pal)+
   geom_sf(data = eco.north) + 
   geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
   #-118.83,17.6,-100.72,32.19
   coord_sf(xlim = c(-118.83, -100.72), ylim = c(17.6, 32.19), expand = FALSE) +
-  xlab("Long") + ylab("Lat") +
+  xlab("") + ylab("") +
   theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
                                         size = 0.1), panel.background = element_rect(fill = "white")) +
   annotation_scale(location = "bl", width_hint = 0.4) +
-  theme(legend.position="none") +
   geom_text_repel(data = eco.north, aes(x = long, y = lat, label = map_index), 
-        fontface = "plain", nudge_x = c(-1.5, -1.5, 1, 1, 1,-2,-2,1,2,-2,-1), nudge_y = c(-0.75, -0.25, -0.5,0,0,0.5,0,0,0.5,-0.5,0), size = 5)
+        fontface = "plain", nudge_x = c(-1.5, -1.5, 1, 1, 1,-2,-2,1,2,-2,-1), nudge_y = c(-0.75, -0.25, -0.5,0,0,0.5,0,0,0.5,-0.5,0), size = 5) +
+theme(legend.position="bottom", axis.text = element_text(size = 11), axis.title = element_text(size = 13), legend.text = element_text(size = 11), legend.title = element_text(size = 13)) +
+    theme(legend.position="none") 
 
-ggsave(here("map_north.png"), mapa.secc1, width = 6, height = 6)
+
+ggsave(here("map_north.png"), mapa.secc1, width = 5, height = 5)
 
 eco.south <- eco.point %>% 
   filter(model %in% c("Isla del Coco","Darwin and Wolf")) %>% 
@@ -158,43 +171,45 @@ eco.south <- eco.point %>%
 mapa.secc2 <- ggplot(data = countries) +
   geom_sf() +  
   geom_sf(data = lme.pol, aes(fill=LME_NAME)) +
-  geom_text(aes(x = -78, y = -1, label = "Ecuador"), stat = "unique", size = 6) +  
+  geom_text(aes(x = -79.2, y = -1, label = "Ecuador"), stat = "unique", size = 5) +  
   scale_fill_manual(values = col.pal, name = "LME")+
   geom_sf(data = eco.south) + 
   geom_sf(data = shape.list, fill = NA, color = gray(.7)) +
   #-94.22,-6.07,-76.11,10.01
   coord_sf(xlim = c(-94.22, -76.11), ylim = c(-6.07, 10.01), expand = FALSE) +
-  xlab("Long") + ylab("Lat") +
+  xlab("") + ylab("") +
   theme(panel.grid.major = element_line(color = gray(0.4), linetype = "dashed", 
                                         size = 0.1), panel.background = element_rect(fill = "white")) +
   annotation_scale(location = "bl", width_hint = 0.4) +
   theme(legend.position="none") +
   geom_text_repel(data = eco.south, aes(x = long, y = lat, label = map_index), 
-        fontface = "plain", nudge_x = c(1, -1.5), nudge_y = c(1, 0.25), size = 5)
+        fontface = "plain", nudge_x = c(1, -1.5), nudge_y = c(1, 0.25), size = 5) +
+  theme(legend.position="bottom", axis.text = element_text(size = 11), axis.title = element_text(size = 13), legend.text = element_text(size = 11), legend.title = element_text(size = 13)) + 
+     theme(legend.position="none") 
 
-ggsave(here("map_south.png"), mapa.secc2, width = 6, height = 6)
+ggsave(here("map_south.png"), mapa.secc2, width = 5, height = 5)
 
+#map.grid <- mapa.lme | mapa.secc1 | mapa.secc2
 
-plot1 <- readPNG('map_lme.png')
-plot2 <- readPNG('map_north.png')
-plot3 <- readPNG('map_south.png')
+map.grid <- mapa.lme + (mapa.secc1 / mapa.secc2) + plot_layout(widths = c(3, 2))
 
-lay <- rbind(c(1,1,1,2,2),
-             c(1,1,1,3,3))
+ggsave(here("map_ecopath.png"), map.grid, width = 10, height = 6)
 
-g2 <- arrangeGrob(rasterGrob(plot1),rasterGrob(plot2),rasterGrob(plot3), layout_matrix = lay, padding = 0.01)
-ggsave('ecopath_map.png',g2,width=7,height=6,dpi=300)
 ```
 
 
 ```{r}
 
 wgs.crs <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-
+ 
 base.raster <- raster(paste0(here(),"/rasters/pp_mean.asc"))
 values(base.raster)[values(base.raster) > 0] = 0
 
-shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) 
+shape.list <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) %>% 
+  mutate(location=if_else(location=="North and central GC","NC Gulf of California",if_else(location=="Southeastern Gulf of California","SE Gulf of California", 
+                                                                                         if_else(location=="Ulloa model","Ulloa", location)))) %>% 
+  filter(!location %in% c("Sinaloa benthic","Benthic GC (Sonora)","Northern GC")) %>% 
+      mutate(model=factor(location, levels = c("NC Gulf of California","Isla Natividad","Bahía de Tortugas","Ulloa","La Paz","Bahía Magdalena","SE Gulf of California","Cabo Pulmo","Isla Isabel","Islas Marietas","Chamela", "Isla del Coco","Darwin and Wolf")))
 
 extent.ecopath <- extent(base.raster)
 
@@ -735,6 +750,150 @@ glm.pca.models <- lapply(new.model.indicators, get_glm, pca.axes)
 
 
 ```
+
+GLM models that only use population as a proxy for human impact
+
+
+```{r}
+
+# O/C and A/C are proxies for resilience
+model.indicators <- c("O/C", "A/C")
+
+new.model.indicators <- c("O_C", "A_C")
+
+#load model indicators
+summary.ind <- read_xlsx("Summary models PiO.xlsx", sheet = 1) %>% 
+   pivot_longer(cols = -Variable, names_to = "model",values_to = "value") %>% 
+  dplyr::filter(Variable %in% model.indicators) %>% 
+  mutate(value = if_else(is.na(value),0,value)) %>% 
+  group_by(Variable) %>% 
+ # resca(value, new_min = 0, new_max = 1) %>% 
+ # dplyr::select(-value) %>% 
+  pivot_wider(names_from = Variable, values_from = value) %>% 
+  mutate(rec_index=1:nrow(.)) %>% 
+  rename_with(~ new.model.indicators, all_of(model.indicators)) %>% 
+  mutate(model = gsub("Bahía","Bahia",model))
+
+summary.var <- read_csv("PIO_oceanography.csv") %>% 
+  dplyr::select(model, chl_a, SST_11, POC)  
+
+
+eco.data <- summary.ind %>% 
+  left_join(summary.var, by = c("model")) %>% 
+  mutate(model = gsub("Bahía","Bahia",model)) %>% 
+  mutate(model = if_else(model=="Bahia Magdalena","B. Magdalena", model))
+
+ranked.cross <- summary.var %>%
+  dplyr::select(-model) %>% 
+  mutate_if(is.numeric, replace_na, '0') %>% 
+  corr_cross(., # name of dataset
+  max_pvalue = 0.01, # display only significant correlations (at 5% level)
+  top = 30 # display top 10 couples of variables (by correlation coefficient)
+)
+
+ggsave("rank_correlations_plot.png", ranked.cross, device="png",width=10,height=9, dpi=300)
+
+
+model1 <- lm(-A_C ~ ., data = eco.data, na.action = na.exclude)
+
+vif.res <- car::vif(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "variable") %>% 
+  setNames(c("variable","VIF")) 
+
+
+vif.res$variable_factor <- factor(vif.res$variable, c("Productivity","Richness","Artisanal fisheries","Boat traffic","Pollution","Cumulative impact")) 
+
+col.pal2 <- c(redmonder.pal(9,"sPBIBu")[2:9],redmonder.pal(9,"sPBIPu")[4:7],redmonder.pal(9,"sPBIRdPu")[2:5])
+
+vif.plot <- ggplot(aes(x=variable,y=VIF, fill=variable), data=vif.res) +
+  geom_bar(stat="identity") +
+  scale_fill_manual(values=col.pal2)+
+   theme(axis.text.x = element_blank())+
+  labs(x="Variable")+
+  geom_hline(yintercept=3)
+
+ggsave("vif_multicolinearity_plot.png", vif.plot, device="png",width=10,height=8, dpi=200)
+
+write_csv(vif.res,"VIF_values.csv")
+
+#model polygons
+shape.ecopath <- do.call(rbind,lapply(list.files(path=paste0(here(),"/shapedir"), pattern = "shp$", full.names = TRUE), sf::read_sf)) %>% 
+  mutate(location = gsub("Bahía","Bahia",location)) %>% 
+  mutate(location=if_else(location=="North and central GC","NC Gulf of California",
+                          if_else(location=="Southeastern Gulf of California","Southeastern",
+                                  if_else(location=="Ulloa model","Ulloa", 
+                                          if_else(location=="Isla Natividad","I. Natividad", 
+                                                  if_else(location=="Bahia Magdalena","B. Magdalena", location)))))) %>% 
+  filter(!location %in% c("Sinaloa benthic","Benthic GC (Sonora)","Northern GC")) %>% 
+      mutate(model=factor(location, levels = c("NC Gulf of California","I. Natividad","Bahia de Tortugas","Ulloa","La Paz","B. Magdalena","SE Gulf of California","Cabo Pulmo","Isla Isabel","Islas Marietas","Chamela", "Isla del Coco","Darwin and Wolf")))
+
+
+# make 30 km buffer around model polygons
+
+wgs.crs <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+
+shape.ecopath.wgs <- st_transform(shape.ecopath, wgs.crs)
+
+shape.eco.buffer <- shape.ecopath.wgs %>% 
+  st_transform(.,6362) %>%
+  st_buffer(.,dist = 3000)
+  
+#load INEGI layer
+
+comm.costas <- st_read(here("comunidades_costeras_30km.shp")) %>% 
+  st_transform(.,wgs.crs) %>% 
+    st_transform(.,6362)
+
+#extract population within buffered model polygons
+
+comm.in.pol <- st_join(comm.costas, shape.eco.buffer, join = st_within)
+
+#aggregate into single column and assign to model
+
+pob.count <- as_tibble(comm.in.pol) %>% 
+  dplyr::group_by(location) %>% 
+  dplyr::summarise(tot_pob=sum(POBTOT)) %>% 
+  dplyr::rename(model=location) %>% 
+  mutate(model = gsub("Bahía","Bahia",model)) 
+# run glm with population
+
+  
+model.data <- eco.data %>% 
+  left_join(pob.count, by="model") %>% 
+  mutate(tot_pob = if_else(is.na(tot_pob), 0, tot_pob))
+  
+  
+ 
+#Modelo 1:
+#O/C ~(a + bChla + cSST + dPOC + ePobHum)
+#Modelo 2:
+#A/C ~(a + bChla + cSST + dPOC + ePobHum)
+
+get_glm <- function(this.variable, data.summary){
+  
+  print(this.variable)
+  
+ # pc.glm <-  glm(formula = substitute(i ~ chl_a + SST_11 + tot_pob, list(i = as.name(this.variable))), family= gaussian, data=model.data)
+  #pc.glm <-  glm(formula = substitute(i ~ chl_a + SST_11 + POC + tot_pob, list(i = as.name(this.variable))), family= gaussian, data=model.data)
+  pc.glm <-  glm(formula = substitute(i ~ chl_a + SST_11 + tot_pob, list(i = as.name(this.variable))), family= gaussian, data=model.data)
+   
+
+  print(summary(pc.glm))
+  
+  saveRDS(pc.glm,here("model_results",paste0("glm_",this.variable, ".rds")))
+  
+  
+return(pc.glm)
+
+} 
+
+glm.models <- lapply(new.model.indicators, get_glm, model.data)
+
+
+
+```
+
 
 
 Resources used
